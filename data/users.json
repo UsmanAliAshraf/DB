@@ -1,0 +1,30 @@
+[
+    {
+        "id": 1,
+        "name": "Usman",
+        "age": 26
+    },
+    {
+        "id": 1,
+        "name": "Usman",
+        "age": 26
+    },
+    {
+        "id": 1,
+        "name": "usman",
+        "roll number": "21",
+        "age": 26
+    },
+    {
+        "id": 1,
+        "name": "John Doe",
+        "age": 26,
+        "email": "john@example.com"
+    },
+    {
+        "id": 3,
+        "name": "Bob Wilson",
+        "age": 35,
+        "email": "bob@example.com"
+    }
+]
