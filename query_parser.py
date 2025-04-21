@@ -1,61 +1,26 @@
 import re
 import json
-from db import MyDB
-
-def process_query(command_str):
-    """
-    Main function to process a raw MongoDB-like command string.
-    It parses the command and performs the appropriate DB operation.
-    """
-    try:
-        # Parse the command string
-        operation, collection_name, params = parse_raw_query(command_str)
-
-        if not operation or not collection_name:
-            return "❌ Invalid query format. Please check syntax."
-
-        # Create DB instance
-        db = MyDB("my_database", collection_name)
-
-        # --- FIND Operation ---
-        if operation == "find":
-            result = db.find(params)
-            return json.dumps(result, indent=2) if result else "🔍 No documents found."
-
-        # --- INSERT Operation ---
-        elif operation == "insert":
-            db.insert(params)
-            return "✅ Document inserted."
-
-        # --- UPDATE Operation ---
-        elif operation == "update":
-            db.update(params['query'], params['update'])
-            return "🔁 Document(s) updated."
-
-        # --- DELETE Operation ---
-        elif operation == "delete":
-            db.delete(params)
-            return "🗑️ Document(s) deleted."
-
-        else:
-            return f"❌ Unsupported operation: {operation}"
-
-    except json.JSONDecodeError as je:
-        return f"❌ JSON parsing error: {str(je)}"
-    except Exception as e:
-        return f"❌ General error: {str(e)}"
 
 def parse_raw_query(query_str):
     """
-    Parses a raw MongoDB-like string (e.g., db.users.find({...})) into
-    operation, collection, and parameters.
+    Parses a raw MongoDB-style string (e.g., db.users.find({...})) into:
+    - operation (find, insert, update, delete)
+    - collection name
+    - parameters (dict)
+
+    Supports:
+    - find({query})
+    - insert({doc})
+    - update({query}, {update})
+    - delete({query})
 
     Returns:
-        tuple: (operation, collection_name, params)
+        tuple: (operation: str, collection_name: str, params: dict)
     """
+    # Clean up the string: remove newlines, tabs
     query_str = query_str.strip().replace('\n', ' ').replace('\t', ' ')
     
-    # Regex: db.collection.operation(params)
+    # Regex pattern: db.collection.operation(params)
     pattern = r'^db\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\((.*)\)$'
     match = re.match(pattern, query_str)
 
@@ -64,49 +29,57 @@ def parse_raw_query(query_str):
 
     collection_name = match.group(1)
     operation = match.group(2)
-    params_str = match.group(3)
-
-    params = {}
+    params_str = match.group(3).strip()
 
     try:
+        # Normalize Mongo-style single quotes to double quotes for JSON
+        params_str = normalize_mongo_json(params_str)
+
         if operation == 'find':
-            params = json.loads(params_str.replace("'", '"')) if params_str else {}
+            # Empty query means match all
+            if not params_str:
+                return operation, collection_name, {}
+            return operation, collection_name, json.loads(params_str)
 
         elif operation == 'insert':
-            params = json.loads(params_str.replace("'", '"'))
+            return operation, collection_name, json.loads(params_str)
 
         elif operation == 'update':
-            # Match: {query}, {update}
-            update_pattern = r'^\s*({.*?})\s*,\s*({.*})\s*$'
+            # Match two JSON objects separated by comma
+            update_pattern = r'^\s*(\{.*?\})\s*,\s*(\{.*\})\s*$'
             update_match = re.match(update_pattern, params_str)
-
             if not update_match:
                 return None, None, None
 
-            query = json.loads(update_match.group(1).replace("'", '"'))
-            update = json.loads(update_match.group(2).replace("'", '"'))
-            params = {'query': query, 'update': update}
+            query_part = json.loads(update_match.group(1))
+            update_part = json.loads(update_match.group(2))
+            return operation, collection_name, {'query': query_part, 'update': update_part}
 
         elif operation == 'delete':
-            params = json.loads(params_str.replace("'", '"'))
+            if not params_str:
+                return operation, collection_name, {}
+            return operation, collection_name, json.loads(params_str)
 
         else:
             return None, None, None
 
-        return operation, collection_name, params
-
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        print("JSON Decode Error:", e)
         return None, None, None
 
-def format_query_examples():
+
+def normalize_mongo_json(text):
     """
-    Return sample query strings users can try.
+    Converts Mongo-style single-quote JSON and unquoted keys into valid JSON.
+    Also handles trailing commas and regex expressions as strings.
     """
-    examples = [
-        "db.users.find({name: 'John'})",
-        "db.users.find({})",
-        "db.users.insert({name: 'Alice', age: 25})",
-        "db.users.update({id: 1}, {$set: {age: 30}})",
-        "db.users.delete({id: 1})"
-    ]
-    return "\n".join([f"  {ex}" for ex in examples])
+    # Replace single quotes with double quotes (carefully)
+    text = re.sub(r"'", r'"', text)
+
+    # Replace unquoted keys with quoted keys: age: => "age":
+    text = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)', r'\1"\2"\3', text)
+
+    # Handle trailing commas inside objects or arrays
+    text = re.sub(r',\s*([\]}])', r'\1', text)
+
+    return text
