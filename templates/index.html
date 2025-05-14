@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocumentDB Web Interface</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-orange: #ff6b35;
+            --accent-yellow: #ffd166;
+            --accent-green: #06d6a0;
+            --dark-bg: #1a1a1a;
+            --darker-bg: #141414;
+            --card-bg: #2d2d2d;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: #ffffff;
+        }
+
+        .navbar {
+            background-color: var(--darker-bg) !important;
+            border-bottom: 2px solid var(--primary-orange);
+        }
+
+        .navbar-brand {
+            color: var(--primary-orange) !important;
+            font-weight: bold;
+        }
+
+        .database-card {
+            background-color: var(--card-bg);
+            border: none;
+            border-radius: 15px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .database-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--primary-orange);
+        }
+
+        .database-card .card-title {
+            color: var(--primary-orange);
+        }
+
+        .database-card .card-text {
+            color: #b3b3b3;
+        }
+
+        .action-buttons {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 1000;
+        }
+
+        .delete-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            opacity: 0;
+            transition: opacity 0.2s;
+            background-color: var(--primary-orange);
+            border: none;
+        }
+
+        .database-card:hover .delete-btn {
+            opacity: 1;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-orange);
+            border: none;
+        }
+
+        .btn-success {
+            background-color: var(--accent-green);
+            border: none;
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            color: #ffffff;
+        }
+
+        .modal-header {
+            border-bottom: 1px solid #404040;
+        }
+
+        .modal-footer {
+            border-top: 1px solid #404040;
+        }
+
+        .form-control {
+            background-color: var(--darker-bg);
+            border: 1px solid #404040;
+            color: #ffffff;
+        }
+
+        .form-control:focus {
+            background-color: var(--darker-bg);
+            border-color: var(--primary-orange);
+            color: #ffffff;
+            box-shadow: 0 0 0 0.25rem rgba(255, 107, 53, 0.25);
+        }
+
+        .list-group-item {
+            background-color: var(--card-bg);
+            color: #ffffff;
+            border: 1px solid #404040;
+            margin-bottom: 5px;
+            border-radius: 8px !important;
+        }
+
+        .list-group-item:hover {
+            background-color: var(--darker-bg);
+            color: var(--primary-orange);
+        }
+
+        .btn-secondary {
+            background-color: #404040;
+            border: none;
+        }
+
+        .btn-secondary:hover {
+            background-color: #505050;
+        }
+
+        .empty-state {
+            background-color: var(--card-bg);
+            border-radius: 15px;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .empty-state i {
+            color: var(--primary-orange);
+        }
+
+        .empty-state p {
+            color: #b3b3b3;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-leaf me-2"></i>MangoDB
+            </a>
+        </div>
+    </nav>
+
+    <div class="container py-5">
+        <h1 class="text-center mb-5" style="color: var(--primary-orange);">
+            <i class="fas fa-leaf me-2"></i>MangoDB
+            <small class="d-block mt-2" style="font-size: 1.2rem; color: var(--accent-yellow);">
+                Your Sweet Document Database
+            </small>
+        </h1>
+        
+        <div class="row row-cols-1 row-cols-md-3 g-4">
+            {% for db in databases %}
+            <div class="col">
+                <div class="card database-card h-100 position-relative">
+                    <button class="btn btn-danger btn-sm delete-btn" onclick="deleteDatabase('{{ db }}', event)">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                    <div class="card-body" onclick="window.location.href='/database/{{ db }}'">
+                        <h5 class="card-title">
+                            <i class="fas fa-database me-2"></i>{{ db }}
+                        </h5>
+                        <p class="card-text">
+                            Click to view collections and manage data
+                        </p>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if not databases %}
+        <div class="empty-state my-5">
+            <i class="fas fa-database fa-3x mb-3"></i>
+            <p>No databases found. Create your first database to get started!</p>
+        </div>
+        {% endif %}
+
+        <div class="action-buttons">
+            <button class="btn btn-primary btn-lg rounded-circle me-2" data-bs-toggle="modal" data-bs-target="#createDbModal">
+                <i class="fas fa-plus"></i>
+            </button>
+            <button class="btn btn-success btn-lg rounded-circle" onclick="openQueryEditor()">
+                <i class="fas fa-terminal"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Create Database Modal -->
+    <div class="modal fade" id="createDbModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create New Database</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createDbForm">
+                        <div class="mb-3">
+                            <label for="dbName" class="form-label">Database Name</label>
+                            <input type="text" class="form-control" id="dbName" required 
+                                   pattern="^[a-zA-Z][a-zA-Z0-9_]*$"
+                                   oninput="validateDbName(this)">
+                            <div class="form-text text-light">
+                                <i class="fas fa-info-circle me-1"></i>Database name must:
+                                <ul class="mb-0 mt-1">
+                                    <li>Start with a letter</li>
+                                    <li>Contain only letters, numbers, and underscores</li>
+                                    <li>No spaces or special characters</li>
+                                </ul>
+                            </div>
+                            <div id="dbNameError" class="invalid-feedback"></div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="createDatabase()">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Database Modal -->
+    <div class="modal fade" id="deleteDbModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete Database</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete the database "<span id="deleteDbName"></span>"?</p>
+                    <p class="text-danger">This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" onclick="confirmDeleteDatabase()">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Select Database Modal -->
+    <div class="modal fade" id="selectDbModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Select Database</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="list-group">
+                        {% for db in databases %}
+                        <a href="/query_editor/{{ db }}" class="list-group-item list-group-item-action">
+                            <i class="fas fa-database me-2"></i>{{ db }}
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% if not databases %}
+                    <div class="text-center text-muted my-3">
+                        <i class="fas fa-database fa-2x mb-2" style="color: var(--primary-orange);"></i>
+                        <p>No databases available. Create a database first.</p>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#createDbModal" data-bs-dismiss="modal">
+                        <i class="fas fa-plus me-2"></i>Create Database
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let deleteDbModal;
+        let selectDbModal;
+        let dbToDelete = '';
+
+        document.addEventListener('DOMContentLoaded', function() {
+            deleteDbModal = new bootstrap.Modal(document.getElementById('deleteDbModal'));
+            selectDbModal = new bootstrap.Modal(document.getElementById('selectDbModal'));
+        });
+
+        function openQueryEditor() {
+            const availableDatabases = {{ databases|tojson }};
+            if (availableDatabases.length === 0) {
+                alert('Please create a database first');
+                return;
+            }
+            selectDbModal.show();
+        }
+
+        function validateDbName(input) {
+            const value = input.value;
+            const errorDiv = document.getElementById('dbNameError');
+            const createBtn = input.closest('.modal').querySelector('.btn-primary');
+            
+            // Reset state
+            input.classList.remove('is-invalid');
+            errorDiv.textContent = '';
+            createBtn.disabled = false;
+
+            if (!value) {
+                return;
+            }
+
+            // Check if starts with letter
+            if (!/^[a-zA-Z]/.test(value)) {
+                input.classList.add('is-invalid');
+                errorDiv.textContent = 'Database name must start with a letter';
+                createBtn.disabled = true;
+                return;
+            }
+
+            // Check if contains only allowed characters
+            if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(value)) {
+                input.classList.add('is-invalid');
+                errorDiv.textContent = 'Only letters, numbers, and underscores are allowed';
+                createBtn.disabled = true;
+                return;
+            }
+        }
+
+        function createDatabase() {
+            const dbName = document.getElementById('dbName').value;
+            if (!dbName) return;
+
+            // Validate before sending
+            const input = document.getElementById('dbName');
+            validateDbName(input);
+            if (input.classList.contains('is-invalid')) {
+                return;
+            }
+
+            fetch('/create_database', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `db_name=${encodeURIComponent(dbName)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    const errorDiv = document.getElementById('dbNameError');
+                    errorDiv.textContent = data.message;
+                    document.getElementById('dbName').classList.add('is-invalid');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while creating the database');
+            });
+        }
+
+        function deleteDatabase(dbName, event) {
+            event.stopPropagation();
+            dbToDelete = dbName;
+            document.getElementById('deleteDbName').textContent = dbName;
+            deleteDbModal.show();
+        }
+
+        function confirmDeleteDatabase() {
+            if (!dbToDelete) return;
+
+            fetch('/delete_database', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `db_name=${encodeURIComponent(dbToDelete)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert(data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while deleting the database');
+            })
+            .finally(() => {
+                deleteDbModal.hide();
+            });
+        }
+    </script>
+</body>
+</html> 

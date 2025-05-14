@@ -1,0 +1,1 @@
+{"transaction_id": "9384c2b4-9044-4177-b139-712959fd4b2b", "timestamp": "2025-05-14T13:33:16.767168", "operation": "create_database", "db_name": "usmanaliasharf2", "collection": null, "document_id": null, "before_state": null, "after_state": {"name": "usmanaliasharf2"}, "isolation_level": "serializable"}
