@@ -1,0 +1,16 @@
+{
+  "collection_name": "CEOs",
+  "field_name": "name",
+  "index_type": "btree",
+  "index_data": {
+    "John Doe": [
+      ""
+    ],
+    "Jane Smith": [
+      ""
+    ],
+    "David Lee": [
+      ""
+    ]
+  }
+}

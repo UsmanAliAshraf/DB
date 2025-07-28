@@ -44,7 +44,9 @@
             border: 1px solid #404040;
             border-radius: 8px;
             font-family: monospace;
-            min-height: 150px;
+            min-height: 250px;
+            height: 250px;
+            resize: vertical;
         }
 
         .query-input:focus {
@@ -121,32 +123,28 @@
             margin-top: 10px;
         }
 
-        .example-queries {
-            background-color: var(--card-bg);
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 20px;
+        .example-queries, .card.example-queries, .card.example-queries .card-header, .card.example-queries .card-body {
+            background-color: var(--card-bg) !important;
+            color: #fff !important;
+            border: 1px solid #404040 !important;
         }
-
-        .example-query {
+        .card.example-queries .card-header {
+            border-bottom: 1px solid #404040 !important;
+        }
+        .card.example-queries .card-header h5 {
+            color: var(--primary-orange) !important;
+        }
+        .card.example-queries .card-body h6 {
+            color: var(--accent-yellow) !important;
+        }
+        .card.example-queries .example-query {
             background-color: var(--darker-bg);
+            color: #fff;
             border: 1px solid #404040;
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 10px;
-            cursor: pointer;
-            transition: all 0.3s ease;
         }
-
-        .example-query:hover {
+        .card.example-queries .example-query:hover {
             border-color: var(--primary-orange);
             background-color: #353535;
-        }
-
-        .example-query .description {
-            color: #b3b3b3;
-            font-size: 0.9em;
-            margin-top: 5px;
         }
     </style>
 </head>
@@ -174,7 +172,7 @@
                     {% endfor %}
                 </div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-5">
                 <div class="query-editor">
                     <h5 class="mb-3" style="color: var(--primary-orange);">
                         <i class="fas fa-terminal me-2"></i>Query Editor
@@ -191,30 +189,30 @@
                     <pre id="queryResults">No results yet</pre>
                 </div>
             </div>
-            <div class="col-md-3">
-                <div class="example-queries">
-                    <h5 class="mb-3" style="color: var(--primary-orange);">
-                        <i class="fas fa-lightbulb me-2"></i>Example Queries
-                    </h5>
-                    <div class="example-query" onclick="loadExampleQuery('find')">
-                        <div><code>db.collection.find()</code></div>
-                        <div class="description">Find all documents in a collection</div>
+            <div class="col-md-4">
+                <div class="card example-queries">
+                    <div class="card-header">
+                        <h5>Example Queries</h5>
                     </div>
-                    <div class="example-query" onclick="loadExampleQuery('findWithFilter')">
-                        <div><code>db.collection.find({"field": "value"})</code></div>
-                        <div class="description">Find documents matching specific criteria</div>
-                    </div>
-                    <div class="example-query" onclick="loadExampleQuery('insert')">
-                        <div><code>db.collection.insert({"name": "John", "age": 30})</code></div>
-                        <div class="description">Insert a new document</div>
-                    </div>
-                    <div class="example-query" onclick="loadExampleQuery('update')">
-                        <div><code>db.collection.update({"name": "John"}, {"$set": {"age": 31}})</code></div>
-                        <div class="description">Update matching documents</div>
-                    </div>
-                    <div class="example-query" onclick="loadExampleQuery('delete')">
-                        <div><code>db.collection.delete({"name": "John"})</code></div>
-                        <div class="description">Delete matching documents</div>
+                    <div class="card-body">
+                        <h6>Single Queries:</h6>
+                        <pre class="example-query" onclick="loadExampleQuery('find')">db.users.find({"age": {"$gt": 25}})</pre>
+                        <pre class="example-query" onclick="loadExampleQuery('insert')">db.users.insert({"name": "John", "age": 30})</pre>
+                        <pre class="example-query" onclick="loadExampleQuery('update')">db.users.update({"name": "John"}, {"$set": {"age": 31}})</pre>
+                        <pre class="example-query" onclick="loadExampleQuery('delete')">db.users.delete({"name": "John"})</pre>
+                        
+                        <h6 class="mt-4">Batch Queries:</h6>
+                        <pre class="example-query" onclick="loadExampleQuery('batch1')">db.users.insert({"name": "Alice", "age": 25});
+db.users.insert({"name": "Bob", "age": 30});
+db.users.find({"age": {"$gt": 25}});</pre>
+                        
+                        <pre class="example-query" onclick="loadExampleQuery('batch2')">db.users.update({"name": "Alice"}, {"$set": {"age": 26}});
+db.users.update({"name": "Bob"}, {"$set": {"age": 31}});
+db.users.find({"age": {"$gt": 25}});</pre>
+                        
+                        <pre class="example-query" onclick="loadExampleQuery('batch3')">db.users.delete({"name": "Alice"});
+db.users.delete({"name": "Bob"});
+db.users.find();</pre>
                     </div>
                 </div>
             </div>
@@ -264,14 +262,11 @@
                 alert('Please select a collection first');
                 return;
             }
-
+            
             let query = '';
             switch(type) {
                 case 'find':
-                    query = `db.${currentCollection}.find()`;
-                    break;
-                case 'findWithFilter':
-                    query = `db.${currentCollection}.find({"field": "value"})`;
+                    query = `db.${currentCollection}.find({"age": {"$gt": 25}})`;
                     break;
                 case 'insert':
                     query = `db.${currentCollection}.insert({"name": "John", "age": 30})`;
@@ -282,8 +277,19 @@
                 case 'delete':
                     query = `db.${currentCollection}.delete({"name": "John"})`;
                     break;
+                case 'batch1':
+                    query = `db.${currentCollection}.insert({"name": "Alice", "age": 25});\ndb.${currentCollection}.insert({"name": "Bob", "age": 30});\ndb.${currentCollection}.find({"age": {"$gt": 25}});`;
+                    break;
+                case 'batch2':
+                    query = `db.${currentCollection}.update({"name": "Alice"}, {"$set": {"age": 26}});\ndb.${currentCollection}.update({"name": "Bob"}, {"$set": {"age": 31}});\ndb.${currentCollection}.find({"age": {"$gt": 25}});`;
+                    break;
+                case 'batch3':
+                    query = `db.${currentCollection}.delete({"name": "Alice"});\ndb.${currentCollection}.delete({"name": "Bob"});\ndb.${currentCollection}.find();`;
+                    break;
             }
+            
             document.getElementById('queryInput').value = query;
+            executeQuery();
         }
     </script>
 </body>

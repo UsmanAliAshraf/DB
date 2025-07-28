@@ -6,6 +6,7 @@ from enum import Enum
 from threading import Lock, Timer
 from datetime import datetime
 from collections import defaultdict
+import threading
 
 class LockType(Enum):
     READ = "read"
@@ -70,22 +71,22 @@ class LockManager:
             if current_lock is None:
                 # No existing lock, can acquire
                 self.locks[db_name][collection][doc_id] = {
-                    "lock_type": lock_type,
+                    "lock_type": lock_type.value,  # Store enum value
                     "transaction_id": transaction_id,
                     "timestamp": time.time(),
-                    "isolation_level": isolation_level
+                    "isolation_level": isolation_level.value  # Store enum value
                 }
                 return True, "Lock acquired"
             
             # If same transaction, can upgrade lock
             if current_lock["transaction_id"] == transaction_id:
                 if (lock_type == LockType.WRITE or 
-                    (lock_type == LockType.READ and current_lock["lock_type"] == LockType.READ)):
+                    (lock_type == LockType.READ and LockType(current_lock["lock_type"]) == LockType.READ)):
                     self.locks[db_name][collection][doc_id] = {
-                        "lock_type": lock_type,
+                        "lock_type": lock_type.value,  # Store enum value
                         "transaction_id": transaction_id,
                         "timestamp": time.time(),
-                        "isolation_level": isolation_level
+                        "isolation_level": isolation_level.value  # Store enum value
                     }
                     return True, "Lock upgraded"
             
@@ -98,7 +99,7 @@ class LockManager:
             # Add to waiters
             self.lock_waiters[(db_name, collection, doc_id)].append({
                 "transaction_id": transaction_id,
-                "lock_type": lock_type,
+                "lock_type": lock_type.value,  # Store enum value
                 "timestamp": time.time()
             })
             
@@ -127,7 +128,7 @@ class LockManager:
                                 "lock_type": next_waiter["lock_type"],
                                 "transaction_id": next_waiter["transaction_id"],
                                 "timestamp": time.time(),
-                                "isolation_level": IsolationLevel.READ_COMMITTED
+                                "isolation_level": IsolationLevel.READ_COMMITTED.value
                             }
                             self.lock_waiters[key].pop(0)
                     
@@ -159,18 +160,106 @@ class TransactionManager:
         self.log_dir = os.path.join(base_dir, "transaction_logs")
         self.checkpoint_dir = os.path.join(base_dir, "checkpoints")
         self.default_isolation_level = isolation_level
+        self.last_checkpoint_time = time.time()
+        self.checkpoint_interval = 60  # 60 seconds
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
+        # Start periodic checkpoint thread
+        self.checkpoint_thread = threading.Thread(target=self._periodic_checkpoint, daemon=True)
+        self.checkpoint_thread.start()
+
+    def _periodic_checkpoint(self):
+        """Create checkpoints periodically"""
+        while True:
+            time.sleep(1)  # Check every second
+            current_time = time.time()
+            if current_time - self.last_checkpoint_time >= self.checkpoint_interval:
+                self._create_checkpoint()
+                self.last_checkpoint_time = current_time
+                # Clean up old transaction logs
+                self._cleanup_old_logs()
+
+    def _create_checkpoint(self, transaction_id=None):
+        """Create a checkpoint of the current state"""
+        checkpoint_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        checkpoint_file = os.path.join(self.checkpoint_dir, f"checkpoint_{checkpoint_time}.json")
+        
+        # Get all active transactions
+        active_transactions = {
+            tid: {
+                **info,
+                "locks": list(info["locks"])  # Convert set to list for JSON serialization
+            }
+            for tid, info in self.transactions.items()
+            if info["state"] == TransactionState.ACTIVE.value
+        }
+        
+        checkpoint_data = {
+            "timestamp": datetime.now().isoformat(),
+            "active_transactions": active_transactions,
+            "last_checkpoint_time": self.last_checkpoint_time
+        }
+        
+        with open(checkpoint_file, "w") as f:
+            json.dump(checkpoint_data, f)
+        
+        # Clean up old checkpoints
+        self._cleanup_old_checkpoints()
+
+    def _cleanup_old_checkpoints(self):
+        """Keep only the last 5 checkpoints"""
+        checkpoints = [f for f in os.listdir(self.checkpoint_dir) if f.startswith("checkpoint_")]
+        if len(checkpoints) > 5:
+            # Sort by timestamp and remove oldest
+            checkpoints.sort()
+            for old_checkpoint in checkpoints[:-5]:
+                os.remove(os.path.join(self.checkpoint_dir, old_checkpoint))
+
+    def _cleanup_old_logs(self):
+        """Clean up transaction logs that have been checkpointed"""
+        latest_checkpoint = self._get_latest_checkpoint()
+        if not latest_checkpoint:
+            return
+
+        checkpoint_time = datetime.fromisoformat(latest_checkpoint["timestamp"])
+        
+        # For each database's transaction log
+        for log_file in os.listdir(self.log_dir):
+            if not log_file.endswith("_transactions.log"):
+                continue
+                
+            log_path = os.path.join(self.log_dir, log_file)
+            temp_path = log_path + ".temp"
+            
+            # Read and filter logs
+            with open(log_path, "r") as f_in, open(temp_path, "w") as f_out:
+                for line in f_in:
+                    try:
+                        log_entry = json.loads(line)
+                        log_time = datetime.fromisoformat(log_entry["timestamp"])
+                        # Keep only logs after the last checkpoint
+                        if log_time > checkpoint_time:
+                            f_out.write(line)
+                    except json.JSONDecodeError:
+                        continue
+            
+            # Replace old log with filtered log
+            os.replace(temp_path, log_path)
 
     def begin_transaction(self, isolation_level=None):
         with self.transaction_lock:
             transaction_id = str(uuid.uuid4())
+            try:
+                last_checkpoint = self._get_latest_checkpoint()
+            except:
+                last_checkpoint = None
+                
             self.transactions[transaction_id] = {
-                "state": TransactionState.ACTIVE,
+                "state": TransactionState.ACTIVE.value,
                 "start_time": time.time(),
                 "locks": set(),
-                "isolation_level": isolation_level or self.default_isolation_level,
-                "last_checkpoint": self._get_latest_checkpoint()
+                "isolation_level": (isolation_level or self.default_isolation_level).value,
+                "last_checkpoint": last_checkpoint
             }
             return transaction_id
 
@@ -180,17 +269,14 @@ class TransactionManager:
                 return False, "Transaction not found"
             
             transaction = self.transactions[transaction_id]
-            if transaction["state"] != TransactionState.ACTIVE:
-                return False, f"Transaction is {transaction['state'].value}"
-            
-            # Create checkpoint before committing
-            self._create_checkpoint(transaction_id)
+            if transaction["state"] != TransactionState.ACTIVE.value:
+                return False, f"Transaction is {transaction['state']}"
             
             # Release all locks
             self.lock_manager.release_transaction_locks(transaction_id)
             
             # Update transaction state
-            transaction["state"] = TransactionState.COMMITTED
+            transaction["state"] = TransactionState.COMMITTED.value
             transaction["end_time"] = time.time()
             
             return True, "Transaction committed successfully"
@@ -201,41 +287,45 @@ class TransactionManager:
                 return False, "Transaction not found"
             
             transaction = self.transactions[transaction_id]
-            if transaction["state"] != TransactionState.ACTIVE:
-                return False, f"Transaction is {transaction['state'].value}"
+            if transaction["state"] != TransactionState.ACTIVE.value:
+                return False, f"Transaction is {transaction['state']}"
             
             # Release all locks
             self.lock_manager.release_transaction_locks(transaction_id)
             
             # Update transaction state
-            transaction["state"] = TransactionState.ABORTED
+            transaction["state"] = TransactionState.ABORTED.value
             transaction["end_time"] = time.time()
             
             return True, "Transaction aborted successfully"
 
-    def _create_checkpoint(self, transaction_id):
-        """Create a checkpoint of the current state"""
-        checkpoint_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        checkpoint_file = os.path.join(self.checkpoint_dir, f"checkpoint_{checkpoint_time}.json")
-        
-        checkpoint_data = {
-            "transaction_id": transaction_id,
-            "timestamp": datetime.now().isoformat(),
-            "state": self.transactions[transaction_id]["state"].value
-        }
-        
-        with open(checkpoint_file, "w") as f:
-            json.dump(checkpoint_data, f)
-
     def _get_latest_checkpoint(self):
         """Get the latest checkpoint information"""
-        checkpoints = [f for f in os.listdir(self.checkpoint_dir) if f.startswith("checkpoint_")]
-        if not checkpoints:
+        try:
+            checkpoints = [f for f in os.listdir(self.checkpoint_dir) if f.startswith("checkpoint_")]
+            if not checkpoints:
+                return None
+            
+            latest_checkpoint = max(checkpoints)
+            checkpoint_path = os.path.join(self.checkpoint_dir, latest_checkpoint)
+            
+            # Check if file exists and is not empty
+            if not os.path.exists(checkpoint_path) or os.path.getsize(checkpoint_path) == 0:
+                return None
+                
+            with open(checkpoint_path, "r") as f:
+                try:
+                    return json.load(f)
+                except json.JSONDecodeError:
+                    # If checkpoint is corrupted, try to delete it
+                    try:
+                        os.remove(checkpoint_path)
+                    except:
+                        pass
+                    return None
+        except Exception as e:
+            print(f"Error reading checkpoint: {str(e)}")
             return None
-        
-        latest_checkpoint = max(checkpoints)
-        with open(os.path.join(self.checkpoint_dir, latest_checkpoint), "r") as f:
-            return json.load(f)
 
     def recover_from_checkpoint(self):
         """Recover the system state from the latest checkpoint"""
@@ -261,7 +351,7 @@ class TransactionManager:
             "document_id": doc_id,
             "before_state": before_state,
             "after_state": after_state,
-            "isolation_level": self.transactions[transaction_id]["isolation_level"].value
+            "isolation_level": self.transactions[transaction_id]["isolation_level"]
         }
         
         # Create log file for the database if it doesn't exist
@@ -273,13 +363,13 @@ class TransactionManager:
         with self.transaction_lock:
             if transaction_id not in self.transactions:
                 return None
-            return self.transactions[transaction_id]["state"]
+            return TransactionState(self.transactions[transaction_id]["state"])
 
     def acquire_document_lock(self, db_name, collection, doc_id, lock_type, transaction_id):
         if self.get_transaction_state(transaction_id) != TransactionState.ACTIVE:
             return False, "Transaction is not active"
         
-        isolation_level = self.transactions[transaction_id]["isolation_level"]
+        isolation_level = IsolationLevel(self.transactions[transaction_id]["isolation_level"])
         success, message = self.lock_manager.acquire_lock(
             db_name, collection, doc_id, lock_type, transaction_id, isolation_level
         )
@@ -287,6 +377,6 @@ class TransactionManager:
         if success:
             self.transactions[transaction_id]["locks"].add((db_name, collection, doc_id))
             if message == "Lock acquisition failed - waiting":
-                self.transactions[transaction_id]["state"] = TransactionState.BLOCKED
+                self.transactions[transaction_id]["state"] = TransactionState.BLOCKED.value
             return True, message
         return False, message 
